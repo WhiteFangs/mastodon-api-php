@@ -1,38 +1,15 @@
 <?php
 
 /**
- * Twitter-API-PHP : Simple PHP wrapper for the v1.1 API
+ * Mastodon-API-PHP : Simple PHP wrapper based on Twitter-API-PHP by J7mbo
  *
- * PHP version 5.3.10
- *
- * @category Awesomeness
- * @package  Twitter-API-PHP
- * @author   James Mallison <me@j7mbo.co.uk>
- * @license  MIT License
- * @version  1.0.4
- * @link     http://github.com/j7mbo/twitter-api-php
  */
-class TwitterAPIExchange
+class MastodonAPIExchange
 {
     /**
      * @var string
      */
     private $oauth_access_token;
-
-    /**
-     * @var string
-     */
-    private $oauth_access_token_secret;
-
-    /**
-     * @var string
-     */
-    private $consumer_key;
-
-    /**
-     * @var string
-     */
-    private $consumer_secret;
 
     /**
      * @var array
@@ -60,58 +37,44 @@ class TwitterAPIExchange
     public $requestMethod;
 
     /**
-     * The HTTP status code from the previous request
-     *
-     * @var int
-     */
-    protected $httpStatusCode;
-
-    /**
      * Create the API access object. Requires an array of settings::
      * oauth access token, oauth access token secret, consumer key, consumer secret
-     * These are all available by creating your own application on dev.twitter.com
+     * These are all available by creating your own application on a mastodon instance
      * Requires the cURL library
      *
-     * @throws \RuntimeException When cURL isn't loaded
-     * @throws \InvalidArgumentException When incomplete settings parameters are provided
+     * @throws \Exception When cURL isn't installed or incorrect settings parameters are provided
      *
      * @param array $settings
      */
     public function __construct(array $settings)
     {
-        if (!function_exists('curl_init'))
+        if (!in_array('curl', get_loaded_extensions()))
         {
-            throw new RuntimeException('TwitterAPIExchange requires cURL extension to be loaded, see: http://curl.haxx.se/docs/install.html');
+            throw new Exception('You need to install cURL, see: http://curl.haxx.se/docs/install.html');
         }
 
-        if (!isset($settings['oauth_access_token'])
-            || !isset($settings['oauth_access_token_secret'])
-            || !isset($settings['consumer_key'])
-            || !isset($settings['consumer_secret']))
+        if (!isset($settings['oauth_access_token']))
         {
-            throw new InvalidArgumentException('Incomplete settings passed to TwitterAPIExchange');
+            throw new Exception('Make sure you are passing in the correct parameters');
         }
 
         $this->oauth_access_token = $settings['oauth_access_token'];
-        $this->oauth_access_token_secret = $settings['oauth_access_token_secret'];
-        $this->consumer_key = $settings['consumer_key'];
-        $this->consumer_secret = $settings['consumer_secret'];
     }
 
     /**
-     * Set postfields array, example: array('screen_name' => 'J7mbo')
+     * Set postfields array, example: array('status' => 'this is a test')
      *
      * @param array $array Array of parameters to send to API
      *
      * @throws \Exception When you are trying to set both get and post fields
      *
-     * @return TwitterAPIExchange Instance of self for method chaining
+     * @return MastodonAPIExchange Instance of self for method chaining
      */
     public function setPostfields(array $array)
     {
         if (!is_null($this->getGetfield()))
         {
-            throw new Exception('You can only choose get OR post fields (post fields include put).');
+            throw new Exception('You can only choose get OR post fields.');
         }
 
         if (isset($array['status']) && substr($array['status'], 0, 1) === '@')
@@ -119,39 +82,25 @@ class TwitterAPIExchange
             $array['status'] = sprintf("\0%s", $array['status']);
         }
 
-        foreach ($array as $key => &$value)
-        {
-            if (is_bool($value))
-            {
-                $value = ($value === true) ? 'true' : 'false';
-            }
-        }
-
         $this->postfields = $array;
-
-        // rebuild oAuth
-        if (isset($this->oauth['oauth_signature']))
-        {
-            $this->buildOauth($this->url, $this->requestMethod);
-        }
 
         return $this;
     }
 
     /**
-     * Set getfield string, example: '?screen_name=J7mbo'
+     * Set getfield string, example: '?limit=80'
      *
      * @param string $string Get key and value pairs as string
      *
      * @throws \Exception
      *
-     * @return \TwitterAPIExchange Instance of self for method chaining
+     * @return \MastodonAPIExchange Instance of self for method chaining
      */
     public function setGetfield($string)
     {
         if (!is_null($this->getPostfields()))
         {
-            throw new Exception('You can only choose get OR post / post fields.');
+            throw new Exception('You can only choose get OR post fields.');
         }
 
         $getfields = preg_replace('/^\?/', '', explode('&', $string));
@@ -166,7 +115,7 @@ class TwitterAPIExchange
             }
         }
 
-        $this->getfield = '?' . http_build_query($params, '', '&');
+        $this->getfield = '?' . http_build_query($params);
 
         return $this;
     }
@@ -192,30 +141,36 @@ class TwitterAPIExchange
     }
 
     /**
+      * Resets the fields to allow a new query
+      * with different method
+      */
+    public function resetFields() {
+        $this->postfields = null;
+        $this->getfield = null;
+        return $this;
+    }
+
+    /**
      * Build the Oauth object using params set in construct and additionals
-     * passed to this method. For v1.1, see: https://dev.twitter.com/docs/api/1.1
+     * passed to this method. 
      *
-     * @param string $url           The API url to use. Example: https://api.twitter.com/1.1/search/tweets.json
+     * @param string $url           The API url to use.
      * @param string $requestMethod Either POST or GET
      *
      * @throws \Exception
      *
-     * @return \TwitterAPIExchange Instance of self for method chaining
+     * @return \MastodonAPIExchange Instance of self for method chaining
      */
     public function buildOauth($url, $requestMethod)
     {
-        if (!in_array(strtolower($requestMethod), array('post', 'get', 'put', 'delete')))
+        if (!in_array(strtolower($requestMethod), array('post', 'get')))
         {
-            throw new Exception('Request method must be either POST, GET or PUT or DELETE');
+            throw new Exception('Request method must be either POST or GET');
         }
 
-        $consumer_key              = $this->consumer_key;
-        $consumer_secret           = $this->consumer_secret;
-        $oauth_access_token        = $this->oauth_access_token;
-        $oauth_access_token_secret = $this->oauth_access_token_secret;
+        $oauth_access_token = $this->oauth_access_token;
 
         $oauth = array(
-            'oauth_consumer_key' => $consumer_key,
             'oauth_nonce' => time(),
             'oauth_signature_method' => 'HMAC-SHA1',
             'oauth_token' => $oauth_access_token,
@@ -249,14 +204,9 @@ class TwitterAPIExchange
             }
         }
 
-        $base_info = $this->buildBaseString($url, $requestMethod, $oauth);
-        $composite_key = rawurlencode($consumer_secret) . '&' . rawurlencode($oauth_access_token_secret);
-        $oauth_signature = base64_encode(hash_hmac('sha1', $base_info, $composite_key, true));
-        $oauth['oauth_signature'] = $oauth_signature;
-
-        $this->url           = $url;
+        $this->url = $url;
         $this->requestMethod = $requestMethod;
-        $this->oauth         = $oauth;
+        $this->oauth = $oauth;
 
         return $this;
     }
@@ -283,22 +233,33 @@ class TwitterAPIExchange
         $getfield = $this->getGetfield();
         $postfields = $this->getPostfields();
 
-        if (in_array(strtolower($this->requestMethod), array('put', 'delete')))
-        {
-            $curlOptions[CURLOPT_CUSTOMREQUEST] = $this->requestMethod;
-        }
-
-        $options = $curlOptions + array(
+        $options = array(
             CURLOPT_HTTPHEADER => $header,
             CURLOPT_HEADER => false,
             CURLOPT_URL => $this->url,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 10,
-        );
+            CURLOPT_TIMEOUT => 120,
+        ) + $curlOptions;
 
         if (!is_null($postfields))
         {
-            $options[CURLOPT_POSTFIELDS] = http_build_query($postfields, '', '&');
+            if (str_contains($this->url, 'media') && isset($postfields['file'])) {
+                $boundary = uniqid();
+                $delimiter = '-------------' . $boundary;
+                $files = array('file' => $postfields['file']);
+                unset($postfields['file']);
+                $post_data = $this->build_data_files($boundary, $postfields, $files);
+                $header[] = "Content-Type: multipart/form-data; boundary=" . $delimiter;
+                $header[] = "Content-Length: " . strlen($post_data);
+                $options[CURLOPT_HTTPHEADER] = $header;
+                $options[CURLOPT_POSTFIELDS] = $post_data;
+            } else {
+                $query = json_encode($postfields);
+                $header[] = 'Content-Type: application/json';
+                $options[CURLOPT_HTTPHEADER] = $header;
+                $options[CURLOPT_POST] = 1;
+                $options[CURLOPT_POSTFIELDS] = $query;
+            }
         }
         else
         {
@@ -312,40 +273,15 @@ class TwitterAPIExchange
         curl_setopt_array($feed, $options);
         $json = curl_exec($feed);
 
-        $this->httpStatusCode = curl_getinfo($feed, CURLINFO_HTTP_CODE);
-
         if (($error = curl_error($feed)) !== '')
         {
             curl_close($feed);
-
             throw new \Exception($error);
         }
 
         curl_close($feed);
 
         return $json;
-    }
-
-    /**
-     * Private method to generate the base string used by cURL
-     *
-     * @param string $baseURI
-     * @param string $method
-     * @param array  $params
-     *
-     * @return string Built base string
-     */
-    private function buildBaseString($baseURI, $method, $params)
-    {
-        $return = array();
-        ksort($params);
-
-        foreach($params as $key => $value)
-        {
-            $return[] = rawurlencode($key) . '=' . rawurlencode($value);
-        }
-
-        return $method . "&" . rawurlencode($baseURI) . '&' . rawurlencode(implode('&', $return));
     }
 
     /**
@@ -357,18 +293,7 @@ class TwitterAPIExchange
      */
     private function buildAuthorizationHeader(array $oauth)
     {
-        $return = 'Authorization: OAuth ';
-        $values = array();
-
-        foreach($oauth as $key => $value)
-        {
-            if (in_array($key, array('oauth_consumer_key', 'oauth_nonce', 'oauth_signature',
-                'oauth_signature_method', 'oauth_timestamp', 'oauth_token', 'oauth_version'))) {
-                $values[] = "$key=\"" . rawurlencode($value) . "\"";
-            }
-        }
-
-        $return .= implode(', ', $values);
+        $return = 'Authorization: Bearer ' . $oauth['oauth_token'];
         return $return;
     }
 
@@ -398,13 +323,39 @@ class TwitterAPIExchange
         return $this->buildOauth($url, $method)->performRequest(true, $curlOptions);
     }
 
-    /**
-     * Get the HTTP status code for the previous request
+     /**
+     * Helper method to create multipart form data for file upload
      *
-     * @return integer
+     * @param string $boundary
+     * @param array $fields
+     * @param array $files
+     *
+     * @throws \Exception
+     *
+     * @return string The multipart form data as string
      */
-    public function getHttpStatusCode()
-    {
-        return $this->httpStatusCode;
+    public function build_data_files($boundary, $fields, $files){
+        $data = '';
+        $eol = "\r\n";
+    
+        $delimiter = '-------------' . $boundary;
+    
+        foreach ($fields as $name => $content) {
+            $data .= "--" . $delimiter . $eol
+                  . 'Content-Disposition: form-data; name="' . $name . "\"".$eol.$eol
+                  . $content . $eol;
+        }
+    
+        foreach ($files as $name => $content) {
+            $data .= "--" . $delimiter . $eol
+                  . 'Content-Disposition: form-data; name="' . $name . '"; filename="' . $name . '"' . $eol
+                  . 'Content-Transfer-Encoding: binary'.$eol;
+        
+            $data .= $eol;
+            $data .= $content . $eol;
+        }
+        $data .= "--" . $delimiter . "--".$eol;
+    
+        return $data;
     }
 }
